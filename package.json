@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.0.0-alpha.1",
   "packageManager": "pnpm@6.35.1",
-  "description": "_description_",
+  "description": "The next iteration of React DevTools",
   "author": "Sunny-117",
   "license": "MIT",
   "homepage": "https://github.com/Sunny-117/vite-plugin-react-devtools#readme",
