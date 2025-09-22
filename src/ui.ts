@@ -365,7 +365,8 @@ export function renderComponentTree(container: HTMLElement, components: ReactCom
  * Finds a component by ID in the component tree
  */
 function findComponentById(components: ReactComponent[], id?: string): ReactComponent | null {
-  if (!id) return null
+  if (!id)
+    return null
 
   for (const component of components) {
     if (component.id === id) {
@@ -411,11 +412,13 @@ function renderComponent(component: ReactComponent, selectedId?: string, depth =
         ${statePreview}
         ${hooksPreview}
       </div>
-      ${hasChildren ? `
+      ${hasChildren
+        ? `
         <div class="component-children">
           ${component.children.map(child => renderComponent(child, selectedId, depth + 1)).join('')}
         </div>
-      ` : ''}
+      `
+        : ''}
     </div>
   `
 }
@@ -429,7 +432,8 @@ export function updatePropsInspector(container: HTMLElement, component: ReactCom
   const stateContent = container.querySelector('#state-content')
   const hooksContent = container.querySelector('#hooks-content')
 
-  if (!inspector) return
+  if (!inspector)
+    return
 
   // Update component info header
   const componentInfo = inspector.querySelector('.component-info')
@@ -500,8 +504,6 @@ if (typeof window !== 'undefined') {
     }
   }
 }
-
-
 
 /**
  * Renders object properties as HTML

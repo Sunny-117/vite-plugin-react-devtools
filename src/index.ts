@@ -1,4 +1,5 @@
 import { createServer } from 'node:http'
+import process from 'node:process'
 import type { Plugin } from 'vite'
 import type { WebSocket } from 'ws'
 import { WebSocketServer } from 'ws'
@@ -58,8 +59,8 @@ export function reactDevTools(options: ReactDevToolsOptions = {}): Plugin {
   } = options
 
   let isProduction = false
-  const projectRoot = ''
-  const sourceNavigationHandler: ReturnType<typeof createSourceNavigationHandler> | null = null
+  // const projectRoot = ''
+  // const sourceNavigationHandler: ReturnType<typeof createSourceNavigationHandler> | null = null
 
   return {
     name: 'vite-plugin-react-devtools',

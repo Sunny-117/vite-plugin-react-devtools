@@ -4,7 +4,7 @@
 
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { resolve, join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { ReactComponent } from './types'
 
 export interface SourceLocation {
@@ -23,7 +23,7 @@ export interface EditorConfig {
  * Supported editors configuration
  */
 export const SUPPORTED_EDITORS: Record<string, EditorConfig> = {
-  code: {
+  'code': {
     name: 'Visual Studio Code',
     command: 'code',
     args: (file, line, column) => {
@@ -39,7 +39,7 @@ export const SUPPORTED_EDITORS: Record<string, EditorConfig> = {
       return ['--goto', location]
     },
   },
-  webstorm: {
+  'webstorm': {
     name: 'WebStorm',
     command: 'webstorm',
     args: (file, line) => {
@@ -47,7 +47,7 @@ export const SUPPORTED_EDITORS: Record<string, EditorConfig> = {
       return ['--line', location]
     },
   },
-  idea: {
+  'idea': {
     name: 'IntelliJ IDEA',
     command: 'idea',
     args: (file, line) => {
@@ -55,7 +55,7 @@ export const SUPPORTED_EDITORS: Record<string, EditorConfig> = {
       return ['--line', location]
     },
   },
-  sublime: {
+  'sublime': {
     name: 'Sublime Text',
     command: 'subl',
     args: (file, line, column) => {
@@ -63,7 +63,7 @@ export const SUPPORTED_EDITORS: Record<string, EditorConfig> = {
       return [location]
     },
   },
-  atom: {
+  'atom': {
     name: 'Atom',
     command: 'atom',
     args: (file, line, column) => {
@@ -71,14 +71,14 @@ export const SUPPORTED_EDITORS: Record<string, EditorConfig> = {
       return [location]
     },
   },
-  vim: {
+  'vim': {
     name: 'Vim',
     command: 'vim',
     args: (file, line) => {
       return line ? [`+${line}`, file] : [file]
     },
   },
-  emacs: {
+  'emacs': {
     name: 'Emacs',
     command: 'emacs',
     args: (file, line) => {
@@ -92,29 +92,31 @@ export const SUPPORTED_EDITORS: Record<string, EditorConfig> = {
  */
 export async function detectAvailableEditors(): Promise<string[]> {
   const available: string[] = []
-  
+
   for (const [key, config] of Object.entries(SUPPORTED_EDITORS)) {
     try {
       await new Promise<void>((resolve, reject) => {
-        const child = spawn(config.command, ['--version'], { 
+        const child = spawn(config.command, ['--version'], {
           stdio: 'ignore',
           timeout: 3000,
         })
         child.on('close', (code) => {
           if (code === 0) {
             resolve()
-          } else {
+          }
+          else {
             reject(new Error(`Command failed with code ${code}`))
           }
         })
         child.on('error', reject)
       })
       available.push(key)
-    } catch {
+    }
+    catch {
       // Editor not available
     }
   }
-  
+
   return available
 }
 
@@ -126,7 +128,7 @@ export async function launchEditor(
   file: string,
   line?: number,
   column?: number,
-  projectRoot?: string
+  projectRoot?: string,
 ): Promise<boolean> {
   const editorConfig = SUPPORTED_EDITORS[editor]
   if (!editorConfig) {
@@ -136,7 +138,7 @@ export async function launchEditor(
 
   // Resolve file path
   const resolvedFile = projectRoot ? resolve(projectRoot, file) : resolve(file)
-  
+
   // Check if file exists
   if (!existsSync(resolvedFile)) {
     console.error(`File not found: ${resolvedFile}`)
@@ -145,18 +147,19 @@ export async function launchEditor(
 
   try {
     const args = editorConfig.args(resolvedFile, line, column)
-    
+
     const child = spawn(editorConfig.command, args, {
       stdio: 'ignore',
       detached: true,
     })
-    
+
     child.unref()
-    
+
     // eslint-disable-next-line no-console
     console.log(`🚀 Opened ${resolvedFile} in ${editorConfig.name}`)
     return true
-  } catch (error) {
+  }
+  catch (error) {
     console.error(`Failed to launch ${editorConfig.name}:`, error)
     return false
   }
@@ -191,7 +194,7 @@ export function getComponentSourceLocation(component: ReactComponent): SourceLoc
 export function resolveComponentFile(
   component: ReactComponent,
   projectRoot: string,
-  srcDirs: string[] = ['src', 'app', 'components']
+  srcDirs: string[] = ['src', 'app', 'components'],
 ): string | null {
   const location = getComponentSourceLocation(component)
   if (location?.file) {
@@ -234,18 +237,18 @@ export function resolveComponentFile(
  */
 export function createSourceNavigationHandler(
   editor: string,
-  projectRoot: string
+  projectRoot: string,
 ) {
   return async (component: ReactComponent): Promise<boolean> => {
     const location = getComponentSourceLocation(component)
-    
+
     if (location) {
       return launchEditor(
         editor,
         location.file,
         location.line,
         location.column,
-        projectRoot
+        projectRoot,
       )
     }
 
@@ -267,7 +270,7 @@ export async function getSourceMapLocation(
   file: string,
   line: number,
   column: number,
-  sourceMapUrl?: string
+  // sourceMapUrl?: string,
 ): Promise<SourceLocation | null> {
   // This would require integration with source-map library
   // For now, return the original location
