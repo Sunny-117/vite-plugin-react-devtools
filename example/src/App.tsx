@@ -7,6 +7,19 @@ interface User {
   email: string
 }
 
+// Test component for source navigation
+const TestComponent = ({ title }: { title: string }) => {
+  const [count, setCount] = useState(0)
+
+  return (
+    <div style={{ padding: '10px', border: '1px solid #ccc', margin: '10px' }}>
+      <h3>{title}</h3>
+      <p>Count: {count}</p>
+      <button onClick={() => setCount(c => c + 1)}>Increment</button>
+    </div>
+  )
+}
+
 function UserCard({ user, onUpdate }: { user: User, onUpdate: (user: User) => void }) {
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState(user.name)
@@ -178,7 +191,15 @@ function App() {
 
       <footer className="app-footer">
         <p>Try inspecting the components above with React DevTools!</p>
+        <p>Click the 📝 button next to components to open their source code!</p>
       </footer>
+
+      {/* Test components for source navigation */}
+      <div style={{ marginTop: '20px', padding: '20px' }}>
+        <h2>Test Components (for source navigation)</h2>
+        <TestComponent title="Test Component 1" />
+        <TestComponent title="Test Component 2" />
+      </div>
     </div>
   )
 }

@@ -114,9 +114,37 @@ export function createDevToolsUI(): HTMLElement {
       .component-item:hover {
         background: #333;
       }
-      
+
       .component-item.selected {
         background: #0e4f79;
+      }
+
+      .component-source-btn {
+        background: none;
+        border: none;
+        color: #888;
+        cursor: pointer;
+        font-size: 12px;
+        margin-left: 8px;
+        padding: 2px 4px;
+        border-radius: 3px;
+        transition: all 0.2s ease;
+      }
+
+      .component-source-btn:hover {
+        background: #3a3a3a;
+        color: #61dafb;
+      }
+
+      .component-header {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .component-spacer {
+        width: 16px;
+        display: inline-block;
       }
       
       .component-name {
@@ -300,7 +328,24 @@ export function renderComponentTree(container: HTMLElement, components: ReactCom
     })
   })
 
-  // Add toggle handlers
+  // Add source navigation handlers
+  const sourceButtons = treeContainer.querySelectorAll('.component-source-btn')
+  sourceButtons.forEach((button) => {
+    button.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const componentId = (button as HTMLElement).dataset.componentId
+      const component = findComponentById(components, componentId)
+
+      if (component && window.__REACT_DEVTOOLS__) {
+        window.__REACT_DEVTOOLS__.send({
+          type: 'OPEN_SOURCE',
+          data: { component },
+        })
+      }
+    })
+  })
+
+  // Add toggle handlers for component children
   const toggles = treeContainer.querySelectorAll('.component-toggle')
   toggles.forEach((toggle) => {
     toggle.addEventListener('click', (e) => {
@@ -317,6 +362,26 @@ export function renderComponentTree(container: HTMLElement, components: ReactCom
 }
 
 /**
+ * Finds a component by ID in the component tree
+ */
+function findComponentById(components: ReactComponent[], id?: string): ReactComponent | null {
+  if (!id) return null
+
+  for (const component of components) {
+    if (component.id === id) {
+      return component
+    }
+
+    const found = findComponentById(component.children, id)
+    if (found) {
+      return found
+    }
+  }
+
+  return null
+}
+
+/**
  * Renders a single component in the tree
  */
 function renderComponent(component: ReactComponent, selectedId?: string, depth = 0): string {
@@ -327,19 +392,31 @@ function renderComponent(component: ReactComponent, selectedId?: string, depth =
     ? `<span class="component-props">{${Object.keys(component.props).slice(0, 3).join(', ')}${Object.keys(component.props).length > 3 ? '...' : ''}}</span>`
     : ''
 
-  const childrenHTML = hasChildren
-    ? `<div class="component-children">${component.children.map(child => renderComponent(child, selectedId, depth + 1)).join('')}</div>`
+  const statePreview = component.state && Object.keys(component.state).length > 0
+    ? `<span class="component-state">state: {${Object.keys(component.state).slice(0, 2).join(', ')}${Object.keys(component.state).length > 2 ? '...' : ''}}</span>`
     : ''
 
-  const toggle = hasChildren ? '<span class="component-toggle">▼</span>' : '<span class="component-toggle"> </span>'
+  const hooks = component.hooks || []
+  const hooksPreview = hooks.length > 0
+    ? `<span class="component-hooks">hooks: ${hooks.length}</span>`
+    : ''
 
   return `
-    <li class="component-item ${isSelected ? 'selected' : ''}" data-component-id="${component.id}" style="padding-left: ${depth * 20}px">
-      ${toggle}
-      <span class="component-name">${component.name}</span>
-      ${propsPreview}
-      ${childrenHTML}
-    </li>
+    <div class="component-item ${isSelected ? 'selected' : ''}" data-component-id="${component.id}" style="margin-left: ${depth * 20}px;">
+      <div class="component-header">
+        ${hasChildren ? `<span class="component-toggle">▼</span>` : '<span class="component-spacer"></span>'}
+        <span class="component-name">${component.displayName || component.name}</span>
+        <button class="component-source-btn" data-component-id="${component.id}" title="Open in editor">📝</button>
+        ${propsPreview}
+        ${statePreview}
+        ${hooksPreview}
+      </div>
+      ${hasChildren ? `
+        <div class="component-children">
+          ${component.children.map(child => renderComponent(child, selectedId, depth + 1)).join('')}
+        </div>
+      ` : ''}
+    </div>
   `
 }
 
@@ -352,35 +429,79 @@ export function updatePropsInspector(container: HTMLElement, component: ReactCom
   const stateContent = container.querySelector('#state-content')
   const hooksContent = container.querySelector('#hooks-content')
 
-  if (!inspector || !propsContent || !stateContent || !hooksContent)
-    return
+  if (!inspector) return
 
-  inspector.style.display = 'block'
-
-  // Render props
-  propsContent.innerHTML = renderObjectProperties(component.props)
-
-  // Render state
-  if (component.state) {
-    stateContent.innerHTML = renderObjectProperties(component.state)
-  }
-  else {
-    stateContent.innerHTML = '<div style="color: #666;">No state</div>'
-  }
-
-  // Render hooks
-  if (component.hooks && component.hooks.length > 0) {
-    hooksContent.innerHTML = component.hooks.map(hook => `
-      <div class="prop-item">
-        <span class="prop-key">${hook.name}</span>
-        <span class="prop-value">${JSON.stringify(hook.value)}</span>
+  // Update component info header
+  const componentInfo = inspector.querySelector('.component-info')
+  if (componentInfo) {
+    componentInfo.innerHTML = `
+      <div class="component-title">
+        <span class="component-name">${component.displayName || component.name}</span>
+        <button class="component-source-btn" data-component-id="${component.id}" title="Open in editor">📝</button>
       </div>
-    `).join('')
+      <div class="component-type">${component.type}</div>
+    `
+
+    // Add click handler for source button
+    const sourceBtn = componentInfo.querySelector('.component-source-btn')
+    if (sourceBtn) {
+      sourceBtn.addEventListener('click', () => {
+        if (window.__REACT_DEVTOOLS__) {
+          window.__REACT_DEVTOOLS__.send({
+            type: 'OPEN_SOURCE',
+            data: { component },
+          })
+        }
+      })
+    }
   }
-  else {
-    hooksContent.innerHTML = '<div style="color: #666;">No hooks</div>'
+
+  // Update props
+  if (propsContent) {
+    propsContent.innerHTML = renderObjectProperties(component.props)
+  }
+
+  // Update state
+  if (stateContent) {
+    stateContent.innerHTML = renderObjectProperties(component.state || {})
+  }
+
+  // Update hooks
+  if (hooksContent) {
+    const hooks = component.hooks || []
+    hooksContent.innerHTML = hooks.length > 0
+      ? hooks.map((hook, index) => `
+          <div class="hook-item">
+            <span class="hook-index">${index}</span>
+            <span class="hook-name">${hook.name}</span>
+            <span class="hook-type">${hook.type}</span>
+            <div class="hook-value">${formatValue(hook.value)}</div>
+          </div>
+        `).join('')
+      : '<div style="color: #666;">No hooks</div>'
   }
 }
+
+// Add global function for source navigation
+declare global {
+  interface Window {
+    openComponentSource?: (componentId: string) => void
+  }
+}
+
+// Set up global source navigation function
+if (typeof window !== 'undefined') {
+  window.openComponentSource = (componentId: string) => {
+    if (window.__REACT_DEVTOOLS__) {
+      window.__REACT_DEVTOOLS__.send({
+        type: 'OPEN_SOURCE',
+        data: { componentId },
+      })
+    }
+  }
+}
+
+
 
 /**
  * Renders object properties as HTML

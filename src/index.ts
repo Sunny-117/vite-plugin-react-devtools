@@ -2,6 +2,7 @@ import { createServer } from 'node:http'
 import type { Plugin } from 'vite'
 import type { WebSocket } from 'ws'
 import { WebSocketServer } from 'ws'
+import { launchEditor, detectAvailableEditors, createSourceNavigationHandler } from './source-navigation'
 
 export interface ReactDevToolsOptions {
   /**
@@ -39,6 +40,11 @@ const devToolsState: DevToolsState = {
   clients: new Set(),
 }
 
+// Global state for source navigation
+let globalProjectRoot = ''
+let globalEditorName = 'code'
+let globalSourceNavigationHandler: ReturnType<typeof createSourceNavigationHandler> | null = null
+
 /**
  * Vite plugin for React DevTools integration
  */
@@ -46,17 +52,24 @@ export function reactDevTools(options: ReactDevToolsOptions = {}): Plugin {
   const {
     port = 8097,
     componentInspector: _componentInspector = true,
-    launchEditor: _launchEditor = 'code',
+    launchEditor: editorName = 'code',
     enableInProduction = false,
   } = options
 
   let isProduction = false
+  let projectRoot = ''
+  let sourceNavigationHandler: ReturnType<typeof createSourceNavigationHandler> | null = null
 
   return {
     name: 'vite-plugin-react-devtools',
 
-    configResolved(config) {
+    configResolved(config: any) {
       isProduction = config.command === 'build' || config.mode === 'production'
+      globalProjectRoot = config.root || process.cwd()
+      globalEditorName = editorName
+
+      // Initialize source navigation handler
+      globalSourceNavigationHandler = createSourceNavigationHandler(editorName, globalProjectRoot)
     },
 
     configureServer(server) {
@@ -189,6 +202,14 @@ function handleDevToolsMessage(message: any, ws: WebSocket) {
       console.log('Update state:', message.data)
       break
 
+    case 'OPEN_SOURCE':
+      handleOpenSource(message.data)
+      break
+
+    case 'GET_AVAILABLE_EDITORS':
+      handleGetAvailableEditors(ws)
+      break
+
     default:
       console.warn('Unknown DevTools message type:', message.type)
   }
@@ -201,6 +222,49 @@ function broadcastToClients(message: any) {
       client.send(messageStr)
     }
   })
+}
+
+/**
+ * Handles opening source code in editor
+ */
+async function handleOpenSource(data: any) {
+  if (!globalSourceNavigationHandler) {
+    console.warn('Source navigation not initialized')
+    return
+  }
+
+  try {
+    const { component, file, line, column } = data
+
+    if (component) {
+      // Open component source
+      await globalSourceNavigationHandler(component)
+    } else if (file) {
+      // Open specific file location
+      await launchEditor(globalEditorName, file, line, column, globalProjectRoot)
+    }
+  } catch (error) {
+    console.error('Failed to open source:', error)
+  }
+}
+
+/**
+ * Handles getting available editors
+ */
+async function handleGetAvailableEditors(ws: WebSocket) {
+  try {
+    const availableEditors = await detectAvailableEditors()
+    ws.send(JSON.stringify({
+      type: 'AVAILABLE_EDITORS',
+      data: { editors: availableEditors, current: globalEditorName },
+    }))
+  } catch (error) {
+    console.error('Failed to detect editors:', error)
+    ws.send(JSON.stringify({
+      type: 'AVAILABLE_EDITORS',
+      data: { editors: [], current: globalEditorName },
+    }))
+  }
 }
 
 function getUICode(): string {
