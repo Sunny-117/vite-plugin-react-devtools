@@ -31,6 +31,7 @@ export interface ReactDevToolsOptions {
 }
 
 interface DevToolsState {
+  server?: any
   wss?: WebSocketServer
   clients: Set<WebSocket>
   componentTree?: any
@@ -113,8 +114,26 @@ export function reactDevTools(options: ReactDevToolsOptions = {}): Plugin {
           return html
         }
 
-        // Inject DevTools client script
+        // Inject DevTools client script with React hook initialization
         const devToolsScript = `
+          <script>
+            // Initialize React DevTools hook before React loads
+            if (!window.__REACT_DEVTOOLS_GLOBAL_HOOK__) {
+              window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+                renderers: new Map(),
+                onCommitFiberRoot: null,
+                onCommitFiberUnmount: null,
+                supportsFiber: true,
+                inject: function(renderer) {
+                  const id = Math.random();
+                  this.renderers.set(id, renderer);
+                  console.log('React DevTools: Renderer injected with ID', id);
+                  return id;
+                }
+              };
+              console.log('React DevTools: Global hook initialized');
+            }
+          </script>
           <script type="module">
             import '/__react-devtools/client.js';
           </script>
@@ -133,8 +152,13 @@ export function reactDevTools(options: ReactDevToolsOptions = {}): Plugin {
 
     buildEnd() {
       // Clean up WebSocket server
+      if (devToolsState.server) {
+        devToolsState.server.close()
+        devToolsState.server = undefined
+      }
       if (devToolsState.wss) {
         devToolsState.wss.close()
+        devToolsState.wss = undefined
         devToolsState.clients.clear()
       }
     },
@@ -142,8 +166,17 @@ export function reactDevTools(options: ReactDevToolsOptions = {}): Plugin {
 }
 
 function setupWebSocketServer(port: number) {
-  if (devToolsState.wss) {
+  if (devToolsState.wss && devToolsState.server) {
+    console.log(`🔄 React DevTools WebSocket server already running on port ${port}`)
     return // Already set up
+  }
+
+  // Clean up any existing server
+  if (devToolsState.server) {
+    devToolsState.server.close()
+  }
+  if (devToolsState.wss) {
+    devToolsState.wss.close()
   }
 
   const server = createServer()
@@ -181,6 +214,16 @@ function setupWebSocketServer(port: number) {
     console.log(`🚀 React DevTools WebSocket server running on port ${port}`)
   })
 
+  server.on('error', (error: any) => {
+    if (error.code === 'EADDRINUSE') {
+      console.warn(`⚠️ Port ${port} is already in use, React DevTools may not work properly`)
+    }
+    else {
+      console.error('React DevTools server error:', error)
+    }
+  })
+
+  devToolsState.server = server
   devToolsState.wss = wss
 }
 
@@ -823,15 +866,197 @@ function generateClientScript(port: number): string {
     return button;
   }
 
-  // Simple React detection
+  // React integration and component detection
   function setupReactIntegration() {
-    // Basic React detection - will be enhanced later
     console.log('React DevTools: Setting up integration');
+
+    // Try to find React DevTools hook
+    const hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+    if (!hook) {
+      console.warn('React DevTools: React DevTools hook not found');
+      return;
+    }
+
+    console.log('React DevTools: Hook found, setting up listeners');
+
+    // Store original onCommitFiberRoot if it exists
+    const originalOnCommitFiberRoot = hook.onCommitFiberRoot;
+
+    // Set up our commit listener
+    hook.onCommitFiberRoot = function(id, root, priorityLevel) {
+      console.log('React DevTools: Fiber root committed', id);
+
+      // Call original handler if it exists
+      if (originalOnCommitFiberRoot && typeof originalOnCommitFiberRoot === 'function') {
+        originalOnCommitFiberRoot.call(this, id, root, priorityLevel);
+      }
+
+      // Delay to ensure DOM is updated
+      setTimeout(() => {
+        requestComponentTree();
+      }, 100);
+    };
+
+    // Initial component tree request
+    setTimeout(() => {
+      requestComponentTree();
+    }, 500);
+  }
+
+  function getComponentTree() {
+    const hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+    if (!hook || !hook.renderers) {
+      console.log('React DevTools: No renderers found');
+      return [];
+    }
+
+    const renderers = Array.from(hook.renderers.values());
+    if (renderers.length === 0) {
+      console.log('React DevTools: No active renderers');
+      return [];
+    }
+
+    const renderer = renderers[0];
+    if (!renderer || !renderer.findFiberByHostInstance) {
+      console.log('React DevTools: Renderer not ready');
+      return [];
+    }
+
+    // Find React root elements
+    const rootElements = document.querySelectorAll('[data-reactroot], #root, #app, [id*="react"], [class*="react"]');
+    const components = [];
+
+    for (const element of rootElements) {
+      try {
+        const fiber = renderer.findFiberByHostInstance(element);
+        if (fiber) {
+          const component = fiberToComponent(fiber);
+          if (component) {
+            components.push(component);
+          }
+        }
+      } catch (error) {
+        console.log('React DevTools: Error finding fiber for element', error);
+      }
+    }
+
+    // If no components found, try to find React fibers in a different way
+    if (components.length === 0) {
+      try {
+        // Look for React fiber on common root elements
+        const possibleRoots = [
+          document.getElementById('root'),
+          document.getElementById('app'),
+          document.querySelector('[data-reactroot]'),
+          document.querySelector('div[id]'),
+          document.body.firstElementChild
+        ].filter(Boolean);
+
+        for (const root of possibleRoots) {
+          const fiberKey = Object.keys(root).find(key => key.startsWith('__reactInternalInstance') || key.startsWith('__reactFiber'));
+          if (fiberKey) {
+            const fiber = root[fiberKey];
+            if (fiber) {
+              const component = fiberToComponent(fiber);
+              if (component) {
+                components.push(component);
+                break;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.log('React DevTools: Error in fallback fiber detection', error);
+      }
+    }
+
+    console.log('React DevTools: Found components:', components.length);
+    return components;
+  }
+
+  function fiberToComponent(fiber, depth = 0) {
+    if (!fiber || depth > 20) return null;
+
+    // Skip non-component fibers
+    if (!fiber.type && !fiber.elementType) {
+      if (fiber.child) {
+        return fiberToComponent(fiber.child, depth + 1);
+      }
+      return null;
+    }
+
+    const type = fiber.type || fiber.elementType;
+    let name = 'Unknown';
+
+    if (typeof type === 'string') {
+      name = type; // HTML element
+    } else if (typeof type === 'function') {
+      name = type.displayName || type.name || 'Anonymous';
+    } else if (type && typeof type === 'object') {
+      name = type.displayName || type.name || 'Component';
+    }
+
+    // Skip HTML elements unless they're the root
+    if (typeof type === 'string' && depth > 0) {
+      if (fiber.child) {
+        return fiberToComponent(fiber.child, depth + 1);
+      }
+      return null;
+    }
+
+    const component = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: name,
+      type: typeof type === 'string' ? 'host' : 'component',
+      props: fiber.memoizedProps || {},
+      state: fiber.memoizedState || null,
+      hooks: extractHooks(fiber),
+      children: []
+    };
+
+    // Get children
+    let child = fiber.child;
+    while (child) {
+      const childComponent = fiberToComponent(child, depth + 1);
+      if (childComponent) {
+        component.children.push(childComponent);
+      }
+      child = child.sibling;
+    }
+
+    return component;
+  }
+
+  function extractHooks(fiber) {
+    const hooks = [];
+    if (!fiber.memoizedState) return hooks;
+
+    let hook = fiber.memoizedState;
+    let index = 0;
+
+    while (hook && index < 20) { // Prevent infinite loops
+      hooks.push({
+        name: \`Hook \${index}\`,
+        type: 'unknown',
+        value: hook.memoizedState
+      });
+      hook = hook.next;
+      index++;
+    }
+
+    return hooks;
   }
 
   function requestComponentTree() {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'GET_COMPONENT_TREE' }));
+      const components = getComponentTree();
+      ws.send(JSON.stringify({
+        type: 'COMPONENT_TREE',
+        data: {
+          tree: components,
+          selectedId: null
+        }
+      }));
     }
   }
 
@@ -925,6 +1150,21 @@ function generateClientScript(port: number): string {
       open: function() {
         devToolsUI.classList.add('open');
         requestComponentTree();
+      }
+    };
+  }
+
+  // Initialize React DevTools hook if not present
+  if (!window.__REACT_DEVTOOLS_GLOBAL_HOOK__) {
+    window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+      renderers: new Map(),
+      onCommitFiberRoot: null,
+      onCommitFiberUnmount: null,
+      supportsFiber: true,
+      inject: function(renderer) {
+        const id = Math.random();
+        this.renderers.set(id, renderer);
+        return id;
       }
     };
   }
