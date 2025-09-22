@@ -46,6 +46,11 @@
     "typecheck": "tsc --noEmit",
     "prepare": "simple-git-hooks"
   },
+  "dependencies": {
+    "@types/ws": "^8.18.1",
+    "react-devtools-core": "^6.1.5",
+    "ws": "^8.18.3"
+  },
   "devDependencies": {
     "@antfu/eslint-config": "^2.22.0-beta.2",
     "@antfu/ni": "^0.21.12",
