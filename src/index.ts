@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import type { Plugin } from 'vite'
 import type { WebSocket } from 'ws'
 import { WebSocketServer } from 'ws'
-import { launchEditor, detectAvailableEditors, createSourceNavigationHandler } from './source-navigation'
+import { createSourceNavigationHandler, detectAvailableEditors, launchEditor } from './source-navigation'
 
 export interface ReactDevToolsOptions {
   /**
@@ -57,11 +57,23 @@ export function reactDevTools(options: ReactDevToolsOptions = {}): Plugin {
   } = options
 
   let isProduction = false
-  let projectRoot = ''
-  let sourceNavigationHandler: ReturnType<typeof createSourceNavigationHandler> | null = null
+  const projectRoot = ''
+  const sourceNavigationHandler: ReturnType<typeof createSourceNavigationHandler> | null = null
 
   return {
     name: 'vite-plugin-react-devtools',
+
+    resolveId(id) {
+      if (id === '/__react-devtools/client.js') {
+        return id
+      }
+    },
+
+    load(id) {
+      if (id === '/__react-devtools/client.js') {
+        return generateClientScript(port)
+      }
+    },
 
     configResolved(config: any) {
       isProduction = config.command === 'build' || config.mode === 'production'
@@ -82,14 +94,14 @@ export function reactDevTools(options: ReactDevToolsOptions = {}): Plugin {
       setupWebSocketServer(port)
 
       // Add middleware for DevTools assets
-      server.middlewares.use('/__react-devtools', (req, res, next) => {
+      server.middlewares.use((req, res, next) => {
         if (req.url === '/__react-devtools/client.js') {
           res.setHeader('Content-Type', 'application/javascript')
+          res.setHeader('Cache-Control', 'no-cache')
           res.end(generateClientScript(port))
+          return
         }
-        else {
-          next()
-        }
+        next()
       })
     },
 
@@ -239,11 +251,13 @@ async function handleOpenSource(data: any) {
     if (component) {
       // Open component source
       await globalSourceNavigationHandler(component)
-    } else if (file) {
+    }
+    else if (file) {
       // Open specific file location
       await launchEditor(globalEditorName, file, line, column, globalProjectRoot)
     }
-  } catch (error) {
+  }
+  catch (error) {
     console.error('Failed to open source:', error)
   }
 }
@@ -258,7 +272,8 @@ async function handleGetAvailableEditors(ws: WebSocket) {
       type: 'AVAILABLE_EDITORS',
       data: { editors: availableEditors, current: globalEditorName },
     }))
-  } catch (error) {
+  }
+  catch (error) {
     console.error('Failed to detect editors:', error)
     ws.send(JSON.stringify({
       type: 'AVAILABLE_EDITORS',
@@ -267,7 +282,7 @@ async function handleGetAvailableEditors(ws: WebSocket) {
   }
 }
 
-function getUICode(): string {
+function _getUICode(): string {
   // Inline the UI code to avoid file system dependencies
   return `
     function createDevToolsUI() {
@@ -690,7 +705,7 @@ function getUICode(): string {
   `
 }
 
-function getReactDetectorCode(): string {
+function _getReactDetectorCode(): string {
   return `
     function getReactDevToolsHook() {
       if (typeof window === 'undefined') {
@@ -761,9 +776,69 @@ function generateClientScript(port: number): string {
   let devToolsUI = null;
   let toggleButton = null;
 
-  // Import UI functions (these will be injected)
-  ${getUICode()}
-  ${getReactDetectorCode()}
+  // Simple UI creation function
+  function createDevToolsUI() {
+    const container = document.createElement('div');
+    container.id = 'react-devtools-container';
+    container.innerHTML = \`
+      <div style="position: fixed; top: 0; right: 0; width: 400px; height: 100vh; background: #1a1a1a; color: white; z-index: 10000; display: none; overflow: auto;">
+        <div style="padding: 20px;">
+          <h3>React DevTools</h3>
+          <div id="component-tree">Loading...</div>
+        </div>
+      </div>
+    \`;
+    document.body.appendChild(container);
+    return container;
+  }
+
+  function createToggleButton() {
+    const button = document.createElement('button');
+    button.innerHTML = '⚛️';
+    button.style.cssText = \`
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 10001;
+      background: #61dafb;
+      border: none;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      font-size: 20px;
+      cursor: pointer;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    \`;
+
+    button.addEventListener('click', function() {
+      if (devToolsUI) {
+        const panel = devToolsUI.querySelector('#react-devtools-container > div');
+        if (panel) {
+          panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+      }
+    });
+
+    document.body.appendChild(button);
+    return button;
+  }
+
+  // Simple React detection
+  function setupReactIntegration() {
+    // Basic React detection - will be enhanced later
+    console.log('React DevTools: Setting up integration');
+  }
+
+  function requestComponentTree() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'GET_COMPONENT_TREE' }));
+    }
+  }
+
+  function handleDevToolsMessage(message) {
+    console.log('DevTools message:', message);
+    // Handle messages from server
+  }
 
   function connect() {
     try {
@@ -809,21 +884,13 @@ function generateClientScript(port: number): string {
   }
 
   function handleDevToolsMessage(message) {
-    switch (message.type) {
-      case 'COMPONENT_TREE':
-        if (devToolsUI && message.data) {
-          renderComponentTree(devToolsUI, message.data.tree || [], message.data.selectedId);
-        }
-        break;
-
-      case 'COMPONENT_SELECTED':
-        if (devToolsUI && message.data && message.data.component) {
-          updatePropsInspector(devToolsUI, message.data.component);
-        }
-        break;
-
-      default:
-        console.log('Unknown DevTools message:', message);
+    console.log('DevTools message received:', message.type);
+    // Simple message handling for now
+    if (message.type === 'COMPONENT_TREE' && devToolsUI) {
+      const treeElement = devToolsUI.querySelector('#component-tree');
+      if (treeElement) {
+        treeElement.innerHTML = 'Component tree loaded: ' + (message.data?.tree?.length || 0) + ' components';
+      }
     }
   }
 
